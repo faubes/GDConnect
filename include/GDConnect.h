@@ -28,10 +28,10 @@ private:
 
 	static std::size_t callback(const char* in, std::size_t size, std::size_t num, std::string* out);
 	static std::size_t write_data(void *ptr, size_t size, size_t nmemb, FILE *stream);
-    static long getFileSize(const char * filename);
+    int parseTokenFile();
     std::pair<std::string, int> post(const char * endpoint, const char * msg, bool authorized);
     std::pair<std::string, int> get(const char * endpoint, const char * msg, bool authorized);
-    std::pair<std::string, int> initUpload(const char * filename, long fileSize);
+    std::pair<std::string, int> initUpload(const char * filename, const char * id, long fileSize);
     Json::Value getFileMetadataById(const char * id);
 
 public:
@@ -50,7 +50,7 @@ public:
 	int listFiles();
 	int getFileById(const char * filename);
 	std::string getFileId(const char * filename);
-	int putFile(const char * filename);
+	std::pair<std::string, int> putFile(const char * filename);
 
 };
 

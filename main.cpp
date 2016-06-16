@@ -14,19 +14,17 @@ int main(int argc, char* argv[])
     try
     {
         GDConnect connection;
-        connection.init(argv[1]);
+        int err = connection.init(argv[1]);
         if (!connection.valid())
         {
             std::cout << "Connection did not open properly" << std::endl;
             return -1;
         }
 
-        int err = connection.getToken();
-
         if (!err)
         {
-            std::cout << "Token acquired." << std::endl;
             std::string input;
+            std::pair<std::string, int> result;
             bool repeat = true;
             do
             {
@@ -58,7 +56,10 @@ int main(int argc, char* argv[])
                 case 4:
                     std::cout << "Enter the file name:" << std::endl;
                     getline(std::cin, input);
-                    connection.putFile(input.c_str());
+                    result = connection.putFile(input.c_str());
+                    if (!result.second) {
+                        std::cout << "New file id: " << result.first << std::endl;
+                    }
                     break;
                 case 5:
                     std::cout << "Renewing token" << std::endl;

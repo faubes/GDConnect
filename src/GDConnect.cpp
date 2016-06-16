@@ -75,33 +75,25 @@ int GDConnect::init(const char * configFilename)
         return -1;
     }
 
-
-    Json::Value token;
-    std::ifstream tokenFile;
-    tokenFile.open("token.json");
-    if (tokenFile.is_open())
+    if (parseTokenFile())
     {
-        if (reader.parse(tokenFile, token))
-        {
-            std::time_t currentTime;
-            std::time(&currentTime);
-            std::string stimestamp = token["timestamp"].asString();
-            long int ts = atol(stimestamp.c_str());
-            if (currentTime - ts < 3600)
-            {
-                accessToken = token["access_token"].asString();
-                refreshToken = token["refresh_token"].asString();
-                timestamp = (time_t) ts;
-            }
-        }
-        else
-        {
-            timestamp = 0;
-        }
-        tokenFile.close();
+        // if unable to retrieve access & refresh tokens from token.json, obtain new ones from Google
+        // using getToken()
+        return getToken();
     }
-    return 0;
+
+    std::time_t currentTime;
+    std::time(&currentTime);
+    if (currentTime - timestamp < 3600)
+    {
+        // credentials were created / renewed less than an hour ago: access token still valid.
+        std::cout << "Current credentials are still valid." << std::endl;
+        return 0;
+    }
+    // credentials were created / renewed more than an hour ago: refresh access token.
+    return renewToken();
 }
+
 
 /* Callback function used by cURL to process responses into memory */
 std::size_t GDConnect::callback(const char* in, std::size_t size, std::size_t num, std::string* out)
@@ -118,23 +110,27 @@ std::size_t GDConnect::write_data(void *ptr, size_t size, size_t nmemb, FILE *st
     return written;
 }
 
-const char * GDConnect::getAccessToken() {
+const char * GDConnect::getAccessToken()
+{
     return accessToken.c_str();
 }
 
-const char * GDConnect::getRefreshToken() {
+const char * GDConnect::getRefreshToken()
+{
     return refreshToken.c_str();
 }
 
-void GDConnect::setAccessToken(const char * str) {
+void GDConnect::setAccessToken(const char * str)
+{
     accessToken = std::string(str);
 }
 
-void GDConnect::setRefreshToken(const char * str) {
+void GDConnect::setRefreshToken(const char * str)
+{
     refreshToken = std::string(str);
 }
 
-/* Function for sending HTTP Post */
+/* Function for sending basic HTTP Post */
 std::pair<std::string, int> GDConnect::post(const char * endpoint, const char * msg, bool authorized=false)
 {
     CURL *curlHandle;
@@ -198,7 +194,7 @@ std::pair<std::string, int> GDConnect::post(const char * endpoint, const char * 
     return result;
 }
 
-/* Function for sending HTTP get */
+/* Function for sending basic HTTP get */
 std::pair<std::string, int> GDConnect::get(const char * endpoint, const char * msg = NULL, bool authorized=false)
 {
     CURL *curlHandle;
@@ -260,6 +256,38 @@ std::pair<std::string, int> GDConnect::get(const char * endpoint, const char * m
     return result;
 }
 
+int GDConnect::parseTokenFile()
+{
+    Json::Value obj;
+    Json::Reader reader;
+    std::ifstream tokenFile;
+    tokenFile.open("token.json");
+    if (tokenFile.is_open())
+    {
+        if (reader.parse(tokenFile, obj))
+        {
+            std::string stimestamp = obj["timestamp"].asString();
+            long int ts = atol(stimestamp.c_str());
+            timestamp = (time_t) ts;
+            accessToken = obj["access_token"].asString();
+            refreshToken = obj["refresh_token"].asString();
+        }
+        else
+        {
+            std::cerr << "Could not parse token.json file." << std::endl;
+            timestamp = 0;
+            return -1;
+        }
+        tokenFile.close();
+    }
+    else
+    {
+        std::cerr << "Could not open token.json file." << std::endl;
+        timestamp = 0;
+        return -1;
+    }
+    return 0;
+}
 /* Function for saving Token object to disk.
     Also adds a timestamp to verify validity
 */
@@ -296,14 +324,6 @@ int GDConnect::saveToken(Json::Value root)
 */
 int GDConnect::getToken()
 {
-    std::time_t currentTime;
-    std::time(&currentTime);
-    if (currentTime - timestamp < 3600)
-    {
-        std::cout << "Current credentials are still valid!" << std::endl;
-        return 0;
-    }
-
     /* Step 1 - Obtain validation URL for user to provide consent */
     std::stringstream reqBuilder;
     reqBuilder << "scope=" << authScope << "&"
@@ -492,6 +512,7 @@ int GDConnect::getFileById(const char * id)
     FILE *fp;
     struct curl_slist *slist=NULL;
     long result;
+    double totalTime, downloadSpeed, downloadSize;
     Json::Value obj = getFileMetadataById(id);
     if (!obj)
     {
@@ -526,6 +547,11 @@ int GDConnect::getFileById(const char * id)
         else
         {
             curl_easy_getinfo(curlHandle, CURLINFO_RESPONSE_CODE, &result);
+            curl_easy_getinfo(curlHandle, CURLINFO_TOTAL_TIME, &totalTime);
+            curl_easy_getinfo(curlHandle, CURLINFO_SIZE_DOWNLOAD, &downloadSize);
+            curl_easy_getinfo(curlHandle, CURLINFO_SPEED_DOWNLOAD, &downloadSpeed);
+            fprintf(stderr, "Size: %.3f Speed: %.3f bytes/sec during %.3f seconds\n",
+                    downloadSize, downloadSpeed, totalTime);
         }
     }
     else
@@ -585,7 +611,7 @@ std::string GDConnect::getFileId(const char * filename)
     Content-Length: 0
     The Location header provides a URI for actual upload of file
 */
-std::pair<std::string, int> GDConnect::initUpload(const char * filename, long fileSize)
+std::pair<std::string, int> GDConnect::initUpload(const char * filename, const char * id, long fileSize)
 {
     CURL *curlHandle;
     CURLcode res;
@@ -597,6 +623,7 @@ std::pair<std::string, int> GDConnect::initUpload(const char * filename, long fi
 
     Json::Value root;
     root["name"] = std::string(filename);
+    root["id"] = std::string(id);
     Json::FastWriter fastWriter;
     std::string body = fastWriter.write(root);
 
@@ -670,31 +697,45 @@ std::pair<std::string, int> GDConnect::initUpload(const char * filename, long fi
     return result;
 }
 
-int GDConnect::putFile(const char * filename)
+std::pair<std::string, int> GDConnect::putFile(const char * filename)
 {
     std::cout << "Uploading file " << filename << std::endl;
 
     struct stat fileInfo;
-    double speedUpload, totalTime;
+    double uploadSpeed, uploadSize, totalTime;
     FILE *fd;
+    std::string id;
 
     fd = fopen(filename, "rb"); /* open file to upload */
     if(!fd)
     {
-        return 1; /* can't continue */
+        return std::pair<std::string, int>("Unable to open file", -1); /* can't continue */
     }
 
     /* to get the file size */
     if(fstat(fileno(fd), &fileInfo) != 0)
     {
-        return 1; /* can't continue */
+        return std::pair<std::string, int>("Unable to get file stats", -1); /* can't continue */
     }
 
+    std::cout << "Requesting Google Drive ID for new file." << std::endl;
+    std::pair<std::string, int> idRequest;
+    idRequest = get("https://www.googleapis.com/drive/v3/files/generateIds", "?count=1&space=drive", true);
+
+    Json::Value obj;
+    Json::Reader reader;
+
+    if (reader.parse(idRequest.first, obj)) {
+        id = obj["ids"][0].asString();
+    }
+
+    // std::cout << "File id will be " << id << std::endl;
     std::cout << "Initiating upload" << std::endl;
 
     std::pair<std::string, int> initResponse;
-    initResponse = initUpload(filename, reinterpret_cast<long>(fileInfo.st_size));
-    std::cout << "Upload URI is " << std::endl << initResponse.first << std::endl;
+    initResponse = initUpload(filename, id.c_str(), reinterpret_cast<long>(fileInfo.st_size));
+
+    // std::cout << "Upload URI is " << std::endl << initResponse.first << std::endl;
 
     if (initResponse.second != 200)
     {
@@ -702,7 +743,7 @@ int GDConnect::putFile(const char * filename)
                   << "Request for upload URI should return 200 OK and location" << std::endl;
         std::cerr << "Response code was: " << initResponse.second << std::endl
                   << "and response was: " << initResponse.first << std::endl;
-        return -1;
+        return std::pair<std::string, int>(initResponse.first, initResponse.second); /* can't continue */;
     }
 
     CURL * curlHandle;
@@ -731,19 +772,20 @@ int GDConnect::putFile(const char * filename)
         {
             fprintf(stderr, "curl_easy_perform() failed: %s\n",
                     curl_easy_strerror(res));
-            return -1;
+            return std::pair<std::string, int>("curl_easy_perform() failed", -1); /* can't continue */;
         }
         else
         {
             /* now extract transfer info */
-            curl_easy_getinfo(curlHandle, CURLINFO_SPEED_UPLOAD, &speedUpload);
+            curl_easy_getinfo(curlHandle, CURLINFO_SPEED_UPLOAD, &uploadSpeed);
+            curl_easy_getinfo(curlHandle, CURLINFO_SIZE_UPLOAD, &uploadSize);
             curl_easy_getinfo(curlHandle, CURLINFO_TOTAL_TIME, &totalTime);
             curl_easy_getinfo(curlHandle, CURLINFO_RESPONSE_CODE, &uploadResponseCode);
-            fprintf(stderr, "Speed: %.3f bytes/sec during %.3f seconds\n",
-                    speedUpload, totalTime);
+            fprintf(stderr, "Size: %.3f Speed: %.3f bytes/sec during %.3f seconds\n",
+                    uploadSize, uploadSpeed, totalTime);
         }
         /* always cleanup */
         curl_easy_cleanup(curlHandle);
     }
-    return 0;
+    return std::pair<std::string, int>(id, 0); /* can't continue */;
 }

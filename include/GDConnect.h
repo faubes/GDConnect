@@ -40,6 +40,10 @@ public:
     virtual ~GDConnect();
     int init(const char * configFilename);
     bool valid() { return ok; }
+    const char * getAccessToken();
+    const char * getRefreshToken();
+    void setAccessToken(const char * str);
+    void setRefreshToken(const char * str);
 	int getToken();
 	int renewToken();
 	int saveToken(Json::Value root);

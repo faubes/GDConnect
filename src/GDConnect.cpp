@@ -118,20 +118,22 @@ std::size_t GDConnect::write_data(void *ptr, size_t size, size_t nmemb, FILE *st
     return written;
 }
 
-
-long GDConnect::getFileSize(const char * filename)
-{
-    std::fstream file(filename, std::fstream::ate | std::fstream::binary);
-
-    if(!file.is_open())
-    {
-        return -1;
-    }
-    int fileSize = file.tellg();
-    file.close();
-
-    return fileSize;
+const char * GDConnect::getAccessToken() {
+    return accessToken.c_str();
 }
+
+const char * GDConnect::getRefreshToken() {
+    return refreshToken.c_str();
+}
+
+void GDConnect::setAccessToken(const char * str) {
+    accessToken = std::string(str);
+}
+
+void GDConnect::setRefreshToken(const char * str) {
+    refreshToken = std::string(str);
+}
+
 /* Function for sending HTTP Post */
 std::pair<std::string, int> GDConnect::post(const char * endpoint, const char * msg, bool authorized=false)
 {

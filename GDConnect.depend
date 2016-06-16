@@ -1,0 +1,31 @@
+# depslib dependency file v1.0
+1465997328 source:/home/dell/code/GDConnect/main.cpp
+	<iostream>
+	<stdlib.h>
+	"GDConnect.h"
+
+1465997029 /home/dell/code/GDConnect/include/GDConnect.h
+	<string>
+	<utility>
+	<json/json.h>
+
+1465998566 source:/home/dell/code/GDConnect/src/GDConnect.cpp
+	"GDConnect.h"
+	<cstdio>
+	<cstring>
+	<string>
+	<utility>
+	<ctime>
+	<sstream>
+	<iostream>
+	<fstream>
+	<stdlib.h>
+	<sys/stat.h>
+	<curl/curl.h>
+	<json/json.h>
+
+1465997029 source:/home/dell/code/GDConnect/include/GDConnect.h
+	<string>
+	<utility>
+	<json/json.h>
+
